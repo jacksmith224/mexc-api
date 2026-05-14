@@ -78,4 +78,98 @@ app.get('/api/spot-portfolio', async (req, res) => {
   }
 });
 
+// ---------- ANNOUNCEMENTS SYSTEM ----------
+let announcements = [];
+
+// Load existing announcements from file (optional - creates file if not exists)
+const fs = require('fs');
+const ANNOUNCEMENTS_FILE = 'announcements.json';
+
+try {
+    if (fs.existsSync(ANNOUNCEMENTS_FILE)) {
+        const data = fs.readFileSync(ANNOUNCEMENTS_FILE, 'utf8');
+        announcements = JSON.parse(data);
+    }
+} catch (err) {
+    console.log('No existing announcements file, starting fresh');
+}
+
+function saveAnnouncements() {
+    fs.writeFileSync(ANNOUNCEMENTS_FILE, JSON.stringify(announcements, null, 2));
+}
+
+// Get all announcements
+app.get('/api/announcements', (req, res) => {
+    res.json({ announcements });
+});
+
+// Add new announcement (requires admin password)
+app.post('/api/announcements', (req, res) => {
+    const { title, content, adminPassword } = req.body;
+    
+    if (adminPassword !== 'SBint365') {
+        return res.status(401).json({ error: 'Invalid admin password' });
+    }
+    
+    if (!title || !content) {
+        return res.status(400).json({ error: 'Title and content are required' });
+    }
+    
+    const newAnnouncement = {
+        id: Date.now().toString(),
+        title,
+        content,
+        date: new Date().toISOString()
+    };
+    
+    announcements.unshift(newAnnouncement);
+    saveAnnouncements();
+    res.json({ success: true, message: 'Announcement added successfully', announcement: newAnnouncement });
+});
+
+// Update announcement
+app.put('/api/announcements/:id', (req, res) => {
+    const { id } = req.params;
+    const { title, content, adminPassword } = req.body;
+    
+    if (adminPassword !== 'SBint365') {
+        return res.status(401).json({ error: 'Invalid admin password' });
+    }
+    
+    const index = announcements.findIndex(a => a.id === id);
+    if (index === -1) {
+        return res.status(404).json({ error: 'Announcement not found' });
+    }
+    
+    announcements[index] = {
+        ...announcements[index],
+        title: title || announcements[index].title,
+        content: content || announcements[index].content,
+        updatedAt: new Date().toISOString()
+    };
+    
+    saveAnnouncements();
+    res.json({ success: true, message: 'Announcement updated successfully' });
+});
+
+// Delete announcement
+app.delete('/api/announcements/:id', (req, res) => {
+    const { id } = req.params;
+    const { adminPassword } = req.body;
+    
+    if (adminPassword !== 'SBint365') {
+        return res.status(401).json({ error: 'Invalid admin password' });
+    }
+    
+    const initialLength = announcements.length;
+    announcements = announcements.filter(a => a.id !== id);
+    
+    if (announcements.length === initialLength) {
+        return res.status(404).json({ error: 'Announcement not found' });
+    }
+    
+    saveAnnouncements();
+    res.json({ success: true, message: 'Announcement deleted successfully' });
+});
+
 app.listen(3000, () => console.log('Server running on port 3000'));
