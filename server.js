@@ -274,6 +274,50 @@ app.put('/api/contacts/:id', (req, res) => {
     }
 });
 
+// Delete single contact message
+app.delete('/api/contacts/:id', (req, res) => {
+    try {
+        const { id } = req.params;
+        const { adminPassword } = req.body;
+        
+        if (adminPassword !== 'SBint365') {
+            return res.status(401).json({ error: 'Invalid admin password' });
+        }
+        
+        const initialLength = contacts.length;
+        contacts = contacts.filter(c => c.id !== id);
+        
+        if (contacts.length === initialLength) {
+            return res.status(404).json({ error: 'Contact not found' });
+        }
+        
+        saveContacts();
+        res.json({ success: true, message: 'Contact deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting contact:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Delete all contact messages
+app.delete('/api/contacts/all', (req, res) => {
+    try {
+        const { adminPassword } = req.body;
+        
+        if (adminPassword !== 'SBint365') {
+            return res.status(401).json({ error: 'Invalid admin password' });
+        }
+        
+        const deletedCount = contacts.length;
+        contacts = [];
+        saveContacts();
+        
+        res.json({ success: true, message: `Deleted ${deletedCount} contacts` });
+    } catch (error) {
+        console.error('Error deleting all contacts:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
