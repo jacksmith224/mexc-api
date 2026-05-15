@@ -185,5 +185,95 @@ app.delete('/api/announcements/:id', (req, res) => {
   }
 });
 
+// ---------- CONTACT FORM ----------
+const CONTACT_FILE = 'contacts.json';
+let contacts = [];
+
+// Load existing contacts
+try {
+    if (fs.existsSync(CONTACT_FILE)) {
+        const data = fs.readFileSync(CONTACT_FILE, 'utf8');
+        contacts = JSON.parse(data);
+        console.log(`Loaded ${contacts.length} contacts`);
+    }
+} catch (err) {
+    console.log('No existing contacts file');
+}
+
+function saveContacts() {
+    try {
+        fs.writeFileSync(CONTACT_FILE, JSON.stringify(contacts, null, 2));
+    } catch (err) {
+        console.error('Error saving contacts:', err);
+    }
+}
+
+// Submit contact form
+app.post('/api/contact', (req, res) => {
+    try {
+        const { name, email, phone, subject, message, date } = req.body;
+        
+        if (!name || !email || !message) {
+            return res.status(400).json({ error: 'Name, email, and message are required' });
+        }
+        
+        const newContact = {
+            id: Date.now().toString(),
+            name,
+            email,
+            phone: phone || '',
+            subject: subject || 'general',
+            message,
+            date: date || new Date().toISOString(),
+            status: 'unread'
+        };
+        
+        contacts.unshift(newContact);
+        saveContacts();
+        
+        console.log(`New contact from: ${name} (${email})`);
+        
+        // Optional: Send email notification (requires email service)
+        // You can add email sending here later
+        
+        res.json({ success: true, message: 'Message sent successfully' });
+    } catch (error) {
+        console.error('Error saving contact:', error);
+        res.status(500).json({ error: 'Failed to save message' });
+    }
+});
+
+// Admin: Get all contacts (protected)
+app.get('/api/contacts', (req, res) => {
+    const { adminPassword } = req.query;
+    
+    if (adminPassword !== 'SBint365') {
+        return res.status(401).json({ error: 'Invalid admin password' });
+    }
+    
+    res.json({ contacts });
+});
+
+// Admin: Mark contact as read
+app.put('/api/contacts/:id', (req, res) => {
+    const { id } = req.params;
+    const { adminPassword } = req.body;
+    
+    if (adminPassword !== 'SBint365') {
+        return res.status(401).json({ error: 'Invalid admin password' });
+    }
+    
+    const contact = contacts.find(c => c.id === id);
+    if (contact) {
+        contact.status = 'read';
+        contact.readAt = new Date().toISOString();
+        saveContacts();
+        res.json({ success: true });
+    } else {
+        res.status(404).json({ error: 'Contact not found' });
+    }
+});
+
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
