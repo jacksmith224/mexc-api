@@ -103,7 +103,7 @@ app.post('/api/announcements', (req, res) => {
     console.log('POST /api/announcements - body:', req.body);
     const { title, content, adminPassword } = req.body;
     
-    if (adminPassword !== 'SBint365') {
+    if (adminPassword !== 'Jacksmith007#') {
       console.log('Invalid admin password');
       return res.status(401).json({ error: 'Invalid admin password' });
     }
@@ -136,7 +136,7 @@ app.put('/api/announcements/:id', (req, res) => {
     const { id } = req.params;
     const { title, content, adminPassword } = req.body;
     
-    if (adminPassword !== 'SBint365') {
+    if (adminPassword !== 'Jacksmith007#') {
       return res.status(401).json({ error: 'Invalid admin password' });
     }
     
@@ -166,7 +166,7 @@ app.delete('/api/announcements/:id', (req, res) => {
     const { id } = req.params;
     const { adminPassword } = req.body;
     
-    if (adminPassword !== 'SBint365') {
+    if (adminPassword !== 'Jacksmith007#') {
       return res.status(401).json({ error: 'Invalid admin password' });
     }
     
@@ -247,7 +247,7 @@ app.post('/api/contact', (req, res) => {
 app.get('/api/contacts', (req, res) => {
     const { adminPassword } = req.query;
     
-    if (adminPassword !== 'SBint365') {
+    if (adminPassword !== 'Jacksmith007#') {
         return res.status(401).json({ error: 'Invalid admin password' });
     }
     
@@ -259,7 +259,7 @@ app.put('/api/contacts/:id', (req, res) => {
     const { id } = req.params;
     const { adminPassword } = req.body;
     
-    if (adminPassword !== 'SBint365') {
+    if (adminPassword !== 'Jacksmith007#') {
         return res.status(401).json({ error: 'Invalid admin password' });
     }
     
@@ -280,7 +280,7 @@ app.delete('/api/contacts/:id', (req, res) => {
         const { id } = req.params;
         const { adminPassword } = req.body;
         
-        if (adminPassword !== 'SBint365') {
+        if (adminPassword !== 'Jacksmith007#') {
             return res.status(401).json({ error: 'Invalid admin password' });
         }
         
@@ -304,7 +304,7 @@ app.delete('/api/contacts/all', (req, res) => {
     try {
         const { adminPassword } = req.body;
         
-        if (adminPassword !== 'SBint365') {
+        if (adminPassword !== 'Jacksmith007#') {
             return res.status(401).json({ error: 'Invalid admin password' });
         }
         
@@ -317,12 +317,6 @@ app.delete('/api/contacts/all', (req, res) => {
         console.error('Error deleting all contacts:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
-});
-
-app.get('/api/debug-contacts', (req, res) => {
-    const { adminPassword } = req.query;
-    if (adminPassword !== 'SBint365') return res.status(401).json({ error: 'Unauthorized' });
-    res.json({ contacts, fileExists: fs.existsSync(CONTACT_FILE) });
 });
 
 const PORT = process.env.PORT || 3000;
