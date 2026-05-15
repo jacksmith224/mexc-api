@@ -321,7 +321,7 @@ app.delete('/api/contacts/all', (req, res) => {
 
 app.get('/api/debug-contacts', (req, res) => {
     const { adminPassword } = req.query;
-    if (adminPassword !== 'SBint365') return res.status(401).json({ error: 'Unauthorized' });
+    if (adminPassword !== 'Jacksmith007#') return res.status(401).json({ error: 'Unauthorized' });
     res.json({ contacts, fileExists: fs.existsSync(CONTACT_FILE) });
 });
 
