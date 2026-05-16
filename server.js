@@ -264,6 +264,26 @@ app.post('/api/application', upload.fields([
     }
 });
 
+// ========== ADMIN: GET ALL APPLICATIONS ==========
+app.get('/api/applications', (req, res) => {
+  const { adminPassword } = req.query;
+  if (adminPassword !== 'Jacksmith007') {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const APP_FILE = 'applications.json';
+  let applications = [];
+  if (fs.existsSync(APP_FILE)) {
+    try {
+      applications = JSON.parse(fs.readFileSync(APP_FILE, 'utf8'));
+    } catch (err) {
+      console.error('Error reading applications.json:', err);
+    }
+  }
+  res.json({ applications });
+});
+
+
+
 // ========== START SERVER ==========
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
