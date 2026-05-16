@@ -4,7 +4,6 @@ const crypto = require('crypto');
 const axios = require('axios');
 const fs = require('fs');
 const multer = require('multer');
-const Brevo = require('@getbrevo/brevo');
 
 const app = express();
 app.use(express.json());
@@ -17,19 +16,6 @@ app.use((req, res, next) => {
   if (req.method === 'OPTIONS') return res.sendStatus(200);
   next();
 });
-
-// ========== EMAIL CONFIGURATION (Brevo API) ==========
-const EMAIL_USER = process.env.EMAIL_USER || 'sbinternational.org365@gmail.com';
-const BREVO_API_KEY = process.env.BREVO_API_KEY;
-
-if (!BREVO_API_KEY) {
-    console.error('⚠️ WARNING: BREVO_API_KEY environment variable is not set. Email sending will fail.');
-}
-
-const brevoClient = Brevo.ApiClient.instance;
-const apiKeyAuth = brevoClient.authentications['api-key'];
-apiKeyAuth.apiKey = BREVO_API_KEY;
-const transactionalEmailsApi = new Brevo.TransactionalEmailsApi();
 
 // ========== MEXC API CONFIGURATION ==========
 const API_KEY = process.env.MEXC_API_KEY;
@@ -207,7 +193,7 @@ app.delete('/api/contacts/all', (req, res) => {
   res.json({ success: true });
 });
 
-// ========== APPLICATION FORM WITH FILE UPLOADS ==========
+// ========== APPLICATION FORM (saves to JSON, no email) ==========
 const storage = multer.memoryStorage();
 const upload = multer({
     storage: storage,
@@ -251,62 +237,22 @@ app.post('/api/application', upload.fields([
             return res.status(400).json({ error: 'Please upload both sides of your ID card.' });
         }
 
-        // Prepare email via Brevo
-        const subject = `📝 New Token Application from ${fullName}`;
-        const emailHtml = `
-            <h2>New Token Purchase Application</h2>
-            <p><strong>Name:</strong> ${fullName}</p>
-            <p><strong>Phone:</strong> ${phone}</p>
-            <p><strong>Email:</strong> ${email}</p>
-            <p><strong>Age:</strong> ${age || 'Not provided'}</p>
-            <p><strong>Country:</strong> ${country}</p>
-            <p><strong>Address:</strong> ${address || 'Not provided'}</p>
-            <p><strong>Tokens requested:</strong> ${tokenCount}</p>
-            <p><strong>Profession:</strong> ${profession || 'Not provided'}</p>
-            <p><strong>Income Source:</strong> ${incomeSource || 'Not provided'}</p>
-            <p><strong>Annual Income:</strong> ${annualIncome || 'Not provided'}</p>
-            <p><strong>Payment method:</strong> ${paymentChoice}</p>
-            <p><strong>Additional notes:</strong> ${note || 'None'}</p>
-            <p><strong>Submission date:</strong> ${new Date().toLocaleString()}</p>
-        `;
-
-        // Create attachments for Brevo
-        const attachments = [];
-        if (file1) {
-            attachments.push({
-                name: file1.originalname,
-                content: file1.buffer.toString('base64')
-            });
-        }
-        if (file2) {
-            attachments.push({
-                name: file2.originalname,
-                content: file2.buffer.toString('base64')
-            });
-        }
-
-        const sendSmtpEmail = new Brevo.SendSmtpEmail();
-        sendSmtpEmail.subject = subject;
-        sendSmtpEmail.sender = { email: EMAIL_USER, name: 'SB International' };
-        sendSmtpEmail.to = [{ email: EMAIL_USER }];
-        sendSmtpEmail.htmlContent = emailHtml;
-        sendSmtpEmail.attachment = attachments;
-
-        await transactionalEmailsApi.sendTransacEmail(sendSmtpEmail);
-
-        // Save to JSON (backup)
+        // Save to JSON (applications.json)
         const APP_FILE = 'applications.json';
         let applications = [];
         if (fs.existsSync(APP_FILE)) {
             applications = JSON.parse(fs.readFileSync(APP_FILE, 'utf8'));
         }
-        applications.unshift({
+        const newApp = {
             id: Date.now().toString(),
             fullName, phone, email, age: age || '', country, address: address || '',
             tokenCount, profession: profession || '', incomeSource: incomeSource || '',
             annualIncome: annualIncome || '', paymentChoice, note: note || '',
-            date: new Date().toISOString()
-        });
+            date: new Date().toISOString(),
+            file1Name: file1.originalname,
+            file2Name: file2.originalname
+        };
+        applications.unshift(newApp);
         fs.writeFileSync(APP_FILE, JSON.stringify(applications, null, 2));
 
         console.log(`✅ Application saved from ${fullName}`);
