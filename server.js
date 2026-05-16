@@ -267,7 +267,7 @@ app.post('/api/application', upload.fields([
 // ========== ADMIN: GET ALL APPLICATIONS ==========
 app.get('/api/applications', (req, res) => {
   const { adminPassword } = req.query;
-  if (adminPassword !== 'Jacksmith007') {
+  if (adminPassword !== 'jacksmith007') {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   const APP_FILE = 'applications.json';
