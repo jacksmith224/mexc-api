@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const axios = require('axios');
 const fs = require('fs');
 const multer = require('multer');
-const nodemailer = require('nodemailer');
+const Brevo = require('@getbrevo/brevo');
 
 const app = express();
 app.use(express.json());
@@ -18,21 +18,18 @@ app.use((req, res, next) => {
   next();
 });
 
-// ========== EMAIL CONFIGURATION ==========
+// ========== EMAIL CONFIGURATION (Brevo API) ==========
 const EMAIL_USER = process.env.EMAIL_USER || 'sbinternational.org365@gmail.com';
-const EMAIL_PASS = process.env.EMAIL_PASS;
+const BREVO_API_KEY = process.env.BREVO_API_KEY;
 
-if (!EMAIL_PASS) {
-    console.error('⚠️ WARNING: EMAIL_PASS environment variable is not set. Email sending will fail.');
+if (!BREVO_API_KEY) {
+    console.error('⚠️ WARNING: BREVO_API_KEY environment variable is not set. Email sending will fail.');
 }
 
-const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-        user: EMAIL_USER,
-        pass: EMAIL_PASS
-    }
-});
+const brevoClient = Brevo.ApiClient.instance;
+const apiKeyAuth = brevoClient.authentications['api-key'];
+apiKeyAuth.apiKey = BREVO_API_KEY;
+const transactionalEmailsApi = new Brevo.TransactionalEmailsApi();
 
 // ========== MEXC API CONFIGURATION ==========
 const API_KEY = process.env.MEXC_API_KEY;
@@ -147,7 +144,7 @@ app.delete('/api/announcements/:id', (req, res) => {
   res.json({ success: true });
 });
 
-// ========== CONTACT FORM (without files) ==========
+// ========== CONTACT FORM ==========
 const CONTACT_FILE = 'contacts.json';
 let contacts = [];
 
@@ -254,7 +251,7 @@ app.post('/api/application', upload.fields([
             return res.status(400).json({ error: 'Please upload both sides of your ID card.' });
         }
 
-        // Send email
+        // Prepare email via Brevo
         const subject = `📝 New Token Application from ${fullName}`;
         const emailHtml = `
             <h2>New Token Purchase Application</h2>
@@ -273,18 +270,31 @@ app.post('/api/application', upload.fields([
             <p><strong>Submission date:</strong> ${new Date().toLocaleString()}</p>
         `;
 
-        await transporter.sendMail({
-            from: EMAIL_USER,
-            to: EMAIL_USER,
-            subject: subject,
-            html: emailHtml,
-            attachments: [
-                { filename: file1.originalname, content: file1.buffer, contentType: file1.mimetype },
-                { filename: file2.originalname, content: file2.buffer, contentType: file2.mimetype }
-            ]
-        });
+        // Create attachments for Brevo
+        const attachments = [];
+        if (file1) {
+            attachments.push({
+                name: file1.originalname,
+                content: file1.buffer.toString('base64')
+            });
+        }
+        if (file2) {
+            attachments.push({
+                name: file2.originalname,
+                content: file2.buffer.toString('base64')
+            });
+        }
 
-        // Save to JSON
+        const sendSmtpEmail = new Brevo.SendSmtpEmail();
+        sendSmtpEmail.subject = subject;
+        sendSmtpEmail.sender = { email: EMAIL_USER, name: 'SB International' };
+        sendSmtpEmail.to = [{ email: EMAIL_USER }];
+        sendSmtpEmail.htmlContent = emailHtml;
+        sendSmtpEmail.attachment = attachments;
+
+        await transactionalEmailsApi.sendTransacEmail(sendSmtpEmail);
+
+        // Save to JSON (backup)
         const APP_FILE = 'applications.json';
         let applications = [];
         if (fs.existsSync(APP_FILE)) {
