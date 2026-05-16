@@ -319,10 +319,145 @@ app.delete('/api/contacts/all', (req, res) => {
     }
 });
 
-app.get('/api/debug-contacts', (req, res) => {
-    const { adminPassword } = req.query;
-    if (adminPassword !== 'jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
-    res.json({ contacts, fileExists: fs.existsSync(CONTACT_FILE) });
+// ---------- APPLICATION FORM WITH FILE UPLOADS ----------
+const multer = require('multer');
+const path = require('path');
+
+// Configure multer for file uploads (store temporarily in memory)
+const storage = multer.memoryStorage();
+const upload = multer({
+    storage: storage,
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = ['image/jpeg', 'image/png', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+        if (allowedTypes.includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(new Error('Invalid file type. Only JPG, PNG, PDF, DOC, DOCX allowed.'));
+        }
+    }
+});
+
+// Application submission endpoint
+app.post('/api/application', upload.fields([
+    { name: 'idCard1', maxCount: 1 },
+    { name: 'idCard2', maxCount: 1 }
+]), async (req, res) => {
+    try {
+        const {
+            fullName,
+            phone,
+            email,
+            age,
+            country,
+            address,
+            tokenCount,
+            profession,
+            incomeSource,
+            annualIncome,
+            termsChoice,
+            paymentChoice,
+            note
+        } = req.body;
+
+        // Validate required fields
+        if (!fullName || !phone || !email || !country || !tokenCount || !termsChoice || !paymentChoice) {
+            return res.status(400).json({ error: 'Please fill in all required fields.' });
+        }
+
+        if (termsChoice !== 'yes') {
+            return res.status(400).json({ error: 'You must read and accept the terms and conditions.' });
+        }
+
+        // Get files
+        const file1 = req.files['idCard1'] ? req.files['idCard1'][0] : null;
+        const file2 = req.files['idCard2'] ? req.files['idCard2'][0] : null;
+
+        if (!file1 || !file2) {
+            return res.status(400).json({ error: 'Please upload both sides of your ID card.' });
+        }
+
+        // Prepare email content
+        const subject = `📝 New Token Application from ${fullName}`;
+        
+        let emailHtml = `
+            <h2>New Token Purchase Application</h2>
+            <p><strong>Name:</strong> ${fullName}</p>
+            <p><strong>Phone:</strong> ${phone}</p>
+            <p><strong>Email:</strong> ${email}</p>
+            <p><strong>Age:</strong> ${age || 'Not provided'}</p>
+            <p><strong>Country:</strong> ${country}</p>
+            <p><strong>Address:</strong> ${address || 'Not provided'}</p>
+            <p><strong>Tokens requested:</strong> ${tokenCount}</p>
+            <p><strong>Profession:</strong> ${req.body.profession || 'Not provided'}</p>
+            <p><strong>Income Source:</strong> ${req.body.incomeSource || 'Not provided'}</p>
+            <p><strong>Annual Income:</strong> ${req.body.annualIncome || 'Not provided'}</p>
+            <p><strong>Payment method:</strong> ${paymentChoice}</p>
+            <p><strong>Additional notes:</strong> ${note || 'None'}</p>
+            <p><strong>Terms accepted:</strong> Yes</p>
+            <p><strong>Submission date:</strong> ${new Date().toLocaleString()}</p>
+        `;
+
+        // Send email with attachments
+        const mailOptions = {
+            from: EMAIL_USER,
+            to: EMAIL_USER, // Send to yourself
+            subject: subject,
+            html: emailHtml,
+            attachments: [
+                {
+                    filename: file1.originalname,
+                    content: file1.buffer,
+                    contentType: file1.mimetype
+                },
+                {
+                    filename: file2.originalname,
+                    content: file2.buffer,
+                    contentType: file2.mimetype
+                }
+            ]
+        };
+
+        await transporter.sendMail(mailOptions);
+        
+        // Also save to JSON file (optional, for backup)
+        const APPLICATION_FILE = 'applications.json';
+        let applications = [];
+        try {
+            if (fs.existsSync(APPLICATION_FILE)) {
+                const data = fs.readFileSync(APPLICATION_FILE, 'utf8');
+                applications = JSON.parse(data);
+            }
+        } catch (err) {}
+        
+        const newApplication = {
+            id: Date.now().toString(),
+            fullName,
+            phone,
+            email,
+            age: age || '',
+            country,
+            address: address || '',
+            tokenCount,
+            profession: req.body.profession || '',
+            incomeSource: req.body.incomeSource || '',
+            annualIncome: req.body.annualIncome || '',
+            paymentChoice,
+            note: note || '',
+            date: new Date().toISOString(),
+            files: [file1.originalname, file2.originalname]
+        };
+        
+        applications.unshift(newApplication);
+        fs.writeFileSync(APPLICATION_FILE, JSON.stringify(applications, null, 2));
+        
+        console.log(`New application from ${fullName} (${email})`);
+        res.json({ success: true, message: 'Application submitted successfully! We will contact you within 72 hours.' });
+        
+    } catch (error) {
+        console.error('Application error:', error);
+        res.status(500).json({ error: 'Failed to submit application. Please try again or contact us directly.' });
+    }
 });
 
 const PORT = process.env.PORT || 3000;
