@@ -4,18 +4,12 @@ const crypto = require('crypto');
 const axios = require('axios');
 const fs = require('fs');
 const multer = require('multer');
+const { v2: cloudinary } = require('cloudinary');
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
 const app = express();
 app.use(express.json());
 
-// Ensure uploads directory exists
-const uploadDir = 'uploads';
-if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir);
-}
-// Make the uploads folder publicly accessible
-app.use('/uploads', express.static('uploads'));
-// ----------------------------
 
 // Enable CORS
 app.use((req, res, next) => {
@@ -202,33 +196,30 @@ app.delete('/api/contacts/all', (req, res) => {
   res.json({ success: true });
 });
 
-// ========== APPLICATION FORM (saves to JSON, no email) ==========
+// ========== APPLICATION FORM (saves to JSON and Cloudinary) ==========
 
-const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        cb(null, 'uploads/'); // Save files to the uploads folder
-    },
-    filename: function (req, file, cb) {
-        // Create a unique file name to prevent overwriting files with the same name
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        // Extract the original file extension (.png, .jpg, etc)
-        const ext = file.originalname.substring(file.originalname.lastIndexOf('.'));
-        cb(null, file.fieldname + '-' + uniqueSuffix + ext);
-    }
+// 1. Configure Cloudinary with your .env keys
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-const upload = multer({
+// 2. Set up the Cloudinary Storage engine
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'token_applications', // This creates a folder in your Cloudinary account
+    allowed_formats: ['jpg', 'jpeg', 'png', 'pdf'], 
+    // Cloudinary automatically generates unique file names!
+  },
+});
+
+const upload = multer({ 
     storage: storage,
-    limits: { fileSize: 10 * 1024 * 1024 },
-    fileFilter: (req, file, cb) => {
-        const allowedTypes = ['image/jpeg', 'image/png', 'application/pdf'];
-        if (allowedTypes.includes(file.mimetype)) {
-            cb(null, true);
-        } else {
-            cb(new Error('Invalid file type. Only JPG, PNG, PDF allowed.'));
-        }
-    }
+    limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
 });
+
 // ----------------------------------------------------
 
 app.post('/api/application', upload.fields([
@@ -272,10 +263,11 @@ app.post('/api/application', upload.fields([
             tokenCount, profession: profession || '', incomeSource: incomeSource || '',
             annualIncome: annualIncome || '', paymentChoice, note: note || '',
             date: new Date().toISOString(),
-            file1Name: file1.originalname,
+           file1Name: file1.originalname,
             file2Name: file2.originalname,
-            file1SavedName: file1.filename, // This is the unique name saved on the server
-            file2SavedName: file2.filename  // This is the unique name saved on the server
+            file1Url: file1.path, // This is now the permanent Cloudinary URL
+            file2Url: file2.path  // This is now the permanent Cloudinary URL
+            // --------------------------
         };
         applications.unshift(newApp);
         fs.writeFileSync(APP_FILE, JSON.stringify(applications, null, 2));
