@@ -299,7 +299,12 @@ app.get('/api/applications', (req, res) => {
   res.json({ applications });
 });
 
-
+// --- GLOBAL ERROR HANDLER ---
+app.use((err, req, res, next) => {
+    console.error("🚨 MIDDLEWARE CRASH:", err);
+    res.status(500).json({ error: "Server Error: " + err.message });
+});
+// ----------------------------
 
 // ========== START SERVER ==========
 const PORT = process.env.PORT || 3000;
