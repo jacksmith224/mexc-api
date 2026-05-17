@@ -8,6 +8,15 @@ const multer = require('multer');
 const app = express();
 app.use(express.json());
 
+// Ensure uploads directory exists
+const uploadDir = 'uploads';
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir);
+}
+// Make the uploads folder publicly accessible
+app.use('/uploads', express.static('uploads'));
+// ----------------------------
+
 // Enable CORS
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
@@ -194,7 +203,20 @@ app.delete('/api/contacts/all', (req, res) => {
 });
 
 // ========== APPLICATION FORM (saves to JSON, no email) ==========
-const storage = multer.memoryStorage();
+
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        cb(null, 'uploads/'); // Save files to the uploads folder
+    },
+    filename: function (req, file, cb) {
+        // Create a unique file name to prevent overwriting files with the same name
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        // Extract the original file extension (.png, .jpg, etc)
+        const ext = file.originalname.substring(file.originalname.lastIndexOf('.'));
+        cb(null, file.fieldname + '-' + uniqueSuffix + ext);
+    }
+});
+
 const upload = multer({
     storage: storage,
     limits: { fileSize: 10 * 1024 * 1024 },
@@ -207,6 +229,7 @@ const upload = multer({
         }
     }
 });
+// ----------------------------------------------------
 
 app.post('/api/application', upload.fields([
     { name: 'idCard1', maxCount: 1 },
@@ -250,7 +273,9 @@ app.post('/api/application', upload.fields([
             annualIncome: annualIncome || '', paymentChoice, note: note || '',
             date: new Date().toISOString(),
             file1Name: file1.originalname,
-            file2Name: file2.originalname
+            file2Name: file2.originalname,
+            file1SavedName: file1.filename, // This is the unique name saved on the server
+            file2SavedName: file2.filename  // This is the unique name saved on the server
         };
         applications.unshift(newApp);
         fs.writeFileSync(APP_FILE, JSON.stringify(applications, null, 2));
