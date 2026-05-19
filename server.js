@@ -95,7 +95,7 @@ app.get('/api/announcements', (req, res) => {
 
 app.post('/api/announcements', (req, res) => {
   const { title, content, adminPassword } = req.body;
-  if (adminPassword !== 'Jacksmith007') {
+  if (adminPassword !== 'jacksmith007') {
     return res.status(401).json({ error: 'Invalid admin password' });
   }
   const newAnnouncement = {
@@ -112,7 +112,7 @@ app.post('/api/announcements', (req, res) => {
 app.put('/api/announcements/:id', (req, res) => {
   const { id } = req.params;
   const { title, content, adminPassword } = req.body;
-  if (adminPassword !== 'Jacksmith007') {
+  if (adminPassword !== 'jacksmith007') {
     return res.status(401).json({ error: 'Invalid admin password' });
   }
   const index = announcements.findIndex(a => a.id === id);
@@ -125,7 +125,7 @@ app.put('/api/announcements/:id', (req, res) => {
 app.delete('/api/announcements/:id', (req, res) => {
   const { id } = req.params;
   const { adminPassword } = req.body;
-  if (adminPassword !== 'Jacksmith007') {
+  if (adminPassword !== 'jacksmith007') {
     return res.status(401).json({ error: 'Invalid admin password' });
   }
   announcements = announcements.filter(a => a.id !== id);
@@ -165,14 +165,14 @@ app.post('/api/contact', (req, res) => {
 
 app.get('/api/contacts', (req, res) => {
   const { adminPassword } = req.query;
-  if (adminPassword !== 'Jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
+  if (adminPassword !== 'jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
   res.json({ contacts });
 });
 
 app.put('/api/contacts/:id', (req, res) => {
   const { id } = req.params;
   const { adminPassword } = req.body;
-  if (adminPassword !== 'Jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
+  if (adminPassword !== 'jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
   const contact = contacts.find(c => c.id === id);
   if (contact) contact.status = 'read';
   saveContacts();
@@ -182,7 +182,7 @@ app.put('/api/contacts/:id', (req, res) => {
 app.delete('/api/contacts/:id', (req, res) => {
   const { id } = req.params;
   const { adminPassword } = req.body;
-  if (adminPassword !== 'Jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
+  if (adminPassword !== 'jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
   contacts = contacts.filter(c => c.id !== id);
   saveContacts();
   res.json({ success: true });
@@ -190,7 +190,7 @@ app.delete('/api/contacts/:id', (req, res) => {
 
 app.delete('/api/contacts/all', (req, res) => {
   const { adminPassword } = req.body;
-  if (adminPassword !== 'Jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
+  if (adminPassword !== 'jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
   contacts = [];
   saveContacts();
   res.json({ success: true });
