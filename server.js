@@ -299,6 +299,44 @@ app.get('/api/applications', (req, res) => {
   res.json({ applications });
 });
 
+// ========== ADMIN: DELETE APPLICATION ==========
+app.delete('/api/applications/:id', (req, res) => {
+    const { id } = req.params;
+    const { adminPassword } = req.body;
+
+    // Check password (make sure this matches the password you use)
+    if (adminPassword !== 'jacksmith007') {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const APP_FILE = 'applications.json';
+    let applications = [];
+
+    if (fs.existsSync(APP_FILE)) {
+        try {
+            applications = JSON.parse(fs.readFileSync(APP_FILE, 'utf8'));
+        } catch (err) {
+            console.error('Error reading applications.json:', err);
+            return res.status(500).json({ error: 'Database error' });
+        }
+    }
+
+    // Filter out the application with the matching ID
+    const initialLength = applications.length;
+    applications = applications.filter(app => app.id !== id);
+
+    // If the length didn't change, the ID wasn't found
+    if (applications.length === initialLength) {
+        return res.status(404).json({ error: 'Application not found' });
+    }
+
+    // Save the updated list back to the file
+    fs.writeFileSync(APP_FILE, JSON.stringify(applications, null, 2));
+    
+    console.log(`🗑️ Application ${id} deleted.`);
+    res.json({ success: true, message: 'Application deleted successfully' });
+});
+
 // --- GLOBAL ERROR HANDLER ---
 app.use((err, req, res, next) => {
     console.error("🚨 MIDDLEWARE CRASH:", err);
