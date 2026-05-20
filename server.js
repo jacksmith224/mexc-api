@@ -6,6 +6,22 @@ const fs = require('fs');
 const multer = require('multer');
 const { v2: cloudinary } = require('cloudinary');
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
+const mongoose = require('mongoose');
+
+// Connect to MongoDB
+mongoose.connect(process.env.MONGODB_URI)
+  .then(() => console.log('✅ Connected to MongoDB Database!'))
+  .catch(err => console.error('🚨 MongoDB Connection Error:', err));
+
+// Define the Announcement Schema (What an announcement looks like)
+const announcementSchema = new mongoose.Schema({
+  title: String,
+  content: String,
+  date: { type: Date, default: Date.now }
+});
+
+// Create the Model (This gives us methods to find, save, and delete)
+const Announcement = mongoose.model('Announcement', announcementSchema);
 
 const app = express();
 app.use(express.json());
@@ -71,66 +87,78 @@ app.get('/api/spot-portfolio', async (req, res) => {
   }
 });
 
-// ========== ANNOUNCEMENTS SYSTEM ==========
-let announcements = [];
-const ANNOUNCEMENTS_FILE = 'announcements.json';
+// ========== ANNOUNCEMENTS SYSTEM (MONGODB) ==========
 
-try {
-  if (fs.existsSync(ANNOUNCEMENTS_FILE)) {
-    const data = fs.readFileSync(ANNOUNCEMENTS_FILE, 'utf8');
-    announcements = JSON.parse(data);
-    console.log(`Loaded ${announcements.length} announcements`);
-  }
-} catch (err) {
-  console.log('No existing announcements file');
-}
-
-function saveAnnouncements() {
-  fs.writeFileSync(ANNOUNCEMENTS_FILE, JSON.stringify(announcements, null, 2));
-}
-
-app.get('/api/announcements', (req, res) => {
-  res.json({ announcements });
+// Get all announcements
+app.get('/api/announcements', async (req, res) => {
+    try {
+        // Fetch all from database, sorted newest first
+        const announcements = await Announcement.find().sort({ date: -1 });
+        
+        // Map them to match your frontend's expected format (using _id as id)
+        const formattedAnnouncements = announcements.map(ann => ({
+            id: ann._id,
+            title: ann.title,
+            content: ann.content,
+            date: ann.date
+        }));
+        
+        res.json({ announcements: formattedAnnouncements });
+    } catch (err) {
+        console.error("Error fetching announcements:", err);
+        res.status(500).json({ error: 'Failed to fetch announcements' });
+    }
 });
 
-app.post('/api/announcements', (req, res) => {
-  const { title, content, adminPassword } = req.body;
-  if (adminPassword !== 'jacksmith007') {
-    return res.status(401).json({ error: 'Invalid admin password' });
-  }
-  const newAnnouncement = {
-    id: Date.now().toString(),
-    title,
-    content,
-    date: new Date().toISOString()
-  };
-  announcements.unshift(newAnnouncement);
-  saveAnnouncements();
-  res.json({ success: true, message: 'Announcement added' });
+// Add new announcement
+app.post('/api/announcements', async (req, res) => {
+    const { title, content, adminPassword } = req.body;
+    if (adminPassword !== 'jacksmith007') {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    try {
+        const newAnnouncement = new Announcement({ title, content });
+        await newAnnouncement.save(); // Save to database
+        res.json({ success: true, message: 'Announcement added successfully!' });
+    } catch (err) {
+        console.error("Error saving announcement:", err);
+        res.status(500).json({ error: 'Failed to save announcement' });
+    }
 });
 
-app.put('/api/announcements/:id', (req, res) => {
-  const { id } = req.params;
-  const { title, content, adminPassword } = req.body;
-  if (adminPassword !== 'jacksmith007') {
-    return res.status(401).json({ error: 'Invalid admin password' });
-  }
-  const index = announcements.findIndex(a => a.id === id);
-  if (index === -1) return res.status(404).json({ error: 'Not found' });
-  announcements[index] = { ...announcements[index], title, content, updatedAt: new Date().toISOString() };
-  saveAnnouncements();
-  res.json({ success: true });
+// Update announcement
+app.put('/api/announcements/:id', async (req, res) => {
+    const { id } = req.params;
+    const { title, content, adminPassword } = req.body;
+    if (adminPassword !== 'jacksmith007') {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    try {
+        await Announcement.findByIdAndUpdate(id, { title, content });
+        res.json({ success: true, message: 'Announcement updated!' });
+    } catch (err) {
+        console.error("Error updating announcement:", err);
+        res.status(500).json({ error: 'Failed to update announcement' });
+    }
 });
 
-app.delete('/api/announcements/:id', (req, res) => {
-  const { id } = req.params;
-  const { adminPassword } = req.body;
-  if (adminPassword !== 'jacksmith007') {
-    return res.status(401).json({ error: 'Invalid admin password' });
-  }
-  announcements = announcements.filter(a => a.id !== id);
-  saveAnnouncements();
-  res.json({ success: true });
+// Delete announcement
+app.delete('/api/announcements/:id', async (req, res) => {
+    const { id } = req.params;
+    const { adminPassword } = req.body;
+    if (adminPassword !== 'jacksmith007') {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    try {
+        await Announcement.findByIdAndDelete(id);
+        res.json({ success: true, message: 'Announcement deleted!' });
+    } catch (err) {
+        console.error("Error deleting announcement:", err);
+        res.status(500).json({ error: 'Failed to delete announcement' });
+    }
 });
 
 // ========== CONTACT FORM ==========
