@@ -200,7 +200,7 @@ app.delete('/api/announcements/:id', async (req, res) => {
 // ========== CONTACT FORM (MONGODB) ==========
 
 // Submit a new contact message
-app.post('/api/contacts', async (req, res) => {
+app.post('/api/contact', async (req, res) => {
     try {
         const newContact = new Contact(req.body);
         await newContact.save();
@@ -211,22 +211,22 @@ app.post('/api/contacts', async (req, res) => {
     }
 });
 
-// Admin: Get all contacts
-app.get('/api/contacts', async (req, res) => {
+// Admin: Get all contact
+app.get('/api/contact', async (req, res) => {
     if (req.query.adminPassword !== 'jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
     try {
-        const contacts = await Contact.find().sort({ date: -1 });
-        const formatted = contacts.map(c => ({ 
+        const contact = await Contact.find().sort({ date: -1 });
+        const formatted = contact.map(c => ({ 
             id: c._id, name: c.name, phone: c.phone, email: c.email, message: c.message, status: c.status, date: c.date 
         }));
-        res.json({ contacts: formatted });
+        res.json({ contact: formatted });
     } catch (err) {
-        res.status(500).json({ error: 'Failed to fetch contacts' });
+        res.status(500).json({ error: 'Failed to fetch contact' });
     }
 });
 
 // Admin: Mark as read
-app.put('/api/contacts/:id', async (req, res) => {
+app.put('/api/contact/:id', async (req, res) => {
     if (req.body.adminPassword !== 'jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
     try {
         await Contact.findByIdAndUpdate(req.params.id, { status: 'read' });
@@ -237,7 +237,7 @@ app.put('/api/contacts/:id', async (req, res) => {
 });
 
 // Admin: Delete one
-app.delete('/api/contacts/:id', async (req, res) => {
+app.delete('/api/contact/:id', async (req, res) => {
     if (req.body.adminPassword !== 'jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
     try {
         await Contact.findByIdAndDelete(req.params.id);
@@ -248,13 +248,13 @@ app.delete('/api/contacts/:id', async (req, res) => {
 });
 
 // Admin: Delete all
-app.delete('/api/contacts/all', async (req, res) => {
+app.delete('/api/contact/all', async (req, res) => {
     if (req.body.adminPassword !== 'jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
     try {
         await Contact.deleteMany({});
         res.json({ success: true });
     } catch (err) {
-        res.status(500).json({ error: 'Failed to delete all contacts' });
+        res.status(500).json({ error: 'Failed to delete all contact' });
     }
 });
 
@@ -271,7 +271,7 @@ cloudinary.config({
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
-    folder: 'token_applications', // This creates a folder in your Cloudinary account
+    folder: 'token_application', // This creates a folder in your Cloudinary account
     allowed_formats: ['jpg', 'jpeg', 'png', 'pdf'], 
     // Cloudinary automatically generates unique file names!
   },
@@ -346,28 +346,28 @@ app.post('/api/application', upload.fields([
     }
 });
 
-// ========== ADMIN: GET ALL APPLICATIONS (MONGODB) ==========
-app.get('/api/applications', async (req, res) => {
+// ========== ADMIN: GET ALL application (MONGODB) ==========
+app.get('/api/application', async (req, res) => {
     const { adminPassword } = req.query;
     if (adminPassword !== 'jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
 
     try {
-        const applications = await Application.find().sort({ date: -1 });
-        const formatted = applications.map(app => ({
+        const application = await Application.find().sort({ date: -1 });
+        const formatted = application.map(app => ({
             id: app._id, fullName: app.fullName, phone: app.phone, email: app.email,
             age: app.age, country: app.country, tokenCount: app.tokenCount,
             paymentChoice: app.paymentChoice, file1Url: app.file1Url, file1Name: app.file1Name,
             file2Url: app.file2Url, file2Name: app.file2Name, date: app.date
         }));
-        res.json({ applications: formatted });
+        res.json({ application: formatted });
     } catch (err) {
-        console.error("Error fetching applications:", err);
-        res.status(500).json({ error: 'Failed to fetch applications' });
+        console.error("Error fetching application:", err);
+        res.status(500).json({ error: 'Failed to fetch application' });
     }
 });
 
 // ========== ADMIN: DELETE APPLICATION (MONGODB) ==========
-app.delete('/api/applications/:id', async (req, res) => {
+app.delete('/api/application/:id', async (req, res) => {
     const { id } = req.params;
     const { adminPassword } = req.body;
     if (adminPassword !== 'jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
