@@ -20,6 +20,42 @@ const announcementSchema = new mongoose.Schema({
   date: { type: Date, default: Date.now }
 });
 
+
+// Define the Application Schema 
+const applicationSchema = new mongoose.Schema({
+    fullName: String,
+    phone: String,
+    email: String,
+    age: String,
+    country: String,
+    address: String,
+    tokenCount: Number,
+    profession: String,
+    incomeSource: String,
+    annualIncome: String,
+    paymentChoice: String,
+    note: String,
+    file1Url: String,
+    file1Name: String,
+    file2Url: String,
+    file2Name: String,
+    date: { type: Date, default: Date.now }
+});
+const Application = mongoose.model('Application', applicationSchema);
+
+// Define the Contact Schema
+const contactSchema = new mongoose.Schema({
+    name: String,
+    phone: String,
+    email: String,
+    message: String,
+    status: { type: String, default: 'unread' },
+    date: { type: Date, default: Date.now }
+});
+const Contact = mongoose.model('Contact', contactSchema);
+
+
+
 // Create the Model (This gives us methods to find, save, and delete)
 const Announcement = mongoose.model('Announcement', announcementSchema);
 
@@ -161,67 +197,65 @@ app.delete('/api/announcements/:id', async (req, res) => {
     }
 });
 
-// ========== CONTACT FORM ==========
-const CONTACT_FILE = 'contacts.json';
-let contacts = [];
+// ========== CONTACT FORM (MONGODB) ==========
 
-try {
-  if (fs.existsSync(CONTACT_FILE)) {
-    contacts = JSON.parse(fs.readFileSync(CONTACT_FILE, 'utf8'));
-  }
-} catch (err) {}
-
-function saveContacts() {
-  fs.writeFileSync(CONTACT_FILE, JSON.stringify(contacts, null, 2));
-}
-
-app.post('/api/contact', (req, res) => {
-  const { name, email, phone, subject, message } = req.body;
-  if (!name || !email || !message) {
-    return res.status(400).json({ error: 'Required fields missing' });
-  }
-  const newContact = {
-    id: Date.now().toString(),
-    name, email, phone: phone || '', subject: subject || 'general', message,
-    date: new Date().toISOString(),
-    status: 'unread'
-  };
-  contacts.unshift(newContact);
-  saveContacts();
-  res.json({ success: true });
+// Submit a new contact message
+app.post('/api/contacts', async (req, res) => {
+    try {
+        const newContact = new Contact(req.body);
+        await newContact.save();
+        res.json({ success: true, message: 'Message sent successfully' });
+    } catch (err) {
+        console.error("Error saving contact:", err);
+        res.status(500).json({ error: 'Failed to send message' });
+    }
 });
 
-app.get('/api/contacts', (req, res) => {
-  const { adminPassword } = req.query;
-  if (adminPassword !== 'jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
-  res.json({ contacts });
+// Admin: Get all contacts
+app.get('/api/contacts', async (req, res) => {
+    if (req.query.adminPassword !== 'jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const contacts = await Contact.find().sort({ date: -1 });
+        const formatted = contacts.map(c => ({ 
+            id: c._id, name: c.name, phone: c.phone, email: c.email, message: c.message, status: c.status, date: c.date 
+        }));
+        res.json({ contacts: formatted });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch contacts' });
+    }
 });
 
-app.put('/api/contacts/:id', (req, res) => {
-  const { id } = req.params;
-  const { adminPassword } = req.body;
-  if (adminPassword !== 'jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
-  const contact = contacts.find(c => c.id === id);
-  if (contact) contact.status = 'read';
-  saveContacts();
-  res.json({ success: true });
+// Admin: Mark as read
+app.put('/api/contacts/:id', async (req, res) => {
+    if (req.body.adminPassword !== 'jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        await Contact.findByIdAndUpdate(req.params.id, { status: 'read' });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to update contact' });
+    }
 });
 
-app.delete('/api/contacts/:id', (req, res) => {
-  const { id } = req.params;
-  const { adminPassword } = req.body;
-  if (adminPassword !== 'jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
-  contacts = contacts.filter(c => c.id !== id);
-  saveContacts();
-  res.json({ success: true });
+// Admin: Delete one
+app.delete('/api/contacts/:id', async (req, res) => {
+    if (req.body.adminPassword !== 'jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        await Contact.findByIdAndDelete(req.params.id);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to delete contact' });
+    }
 });
 
-app.delete('/api/contacts/all', (req, res) => {
-  const { adminPassword } = req.body;
-  if (adminPassword !== 'jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
-  contacts = [];
-  saveContacts();
-  res.json({ success: true });
+// Admin: Delete all
+app.delete('/api/contacts/all', async (req, res) => {
+    if (req.body.adminPassword !== 'jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        await Contact.deleteMany({});
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to delete all contacts' });
+    }
 });
 
 // ========== APPLICATION FORM (saves to JSON and Cloudinary) ==========
@@ -250,6 +284,7 @@ const upload = multer({
 
 // ----------------------------------------------------
 
+// ========== SUBMIT NEW APPLICATION (MONGODB) ==========
 app.post('/api/application', upload.fields([
     { name: 'idCard1', maxCount: 1 },
     { name: 'idCard2', maxCount: 1 }
@@ -279,28 +314,30 @@ app.post('/api/application', upload.fields([
             return res.status(400).json({ error: 'Please upload both sides of your ID card.' });
         }
 
-        // Save to JSON (applications.json)
-        const APP_FILE = 'applications.json';
-        let applications = [];
-        if (fs.existsSync(APP_FILE)) {
-            applications = JSON.parse(fs.readFileSync(APP_FILE, 'utf8'));
-        }
-        const newApp = {
-            id: Date.now().toString(),
-            fullName, phone, email, age: age || '', country, address: address || '',
-            tokenCount, profession: profession || '', incomeSource: incomeSource || '',
-            annualIncome: annualIncome || '', paymentChoice, note: note || '',
-            date: new Date().toISOString(),
-           file1Name: file1.originalname,
+        // --- NEW MONGODB SAVE LOGIC ---
+        const newApp = new Application({
+            fullName, 
+            phone, 
+            email, 
+            age: age || '', 
+            country, 
+            address: address || '',
+            tokenCount, 
+            profession: profession || '', 
+            incomeSource: incomeSource || '',
+            annualIncome: annualIncome || '', 
+            paymentChoice, 
+            note: note || '',
+            file1Name: file1.originalname,
             file2Name: file2.originalname,
-            file1Url: file1.path, // This is now the permanent Cloudinary URL
-            file2Url: file2.path  // This is now the permanent Cloudinary URL
-            // --------------------------
-        };
-        applications.unshift(newApp);
-        fs.writeFileSync(APP_FILE, JSON.stringify(applications, null, 2));
+            file1Url: file1.path, // Permanent Cloudinary URL
+            file2Url: file2.path  // Permanent Cloudinary URL
+        });
+        
+        await newApp.save(); // Saves securely to MongoDB Atlas
+        // ------------------------------
 
-        console.log(`✅ Application saved from ${fullName}`);
+        console.log(`✅ Application saved to MongoDB from ${fullName}`);
         res.json({ success: true, message: 'Application submitted successfully! We will contact you within 72 hours.' });
 
     } catch (error) {
@@ -309,60 +346,39 @@ app.post('/api/application', upload.fields([
     }
 });
 
-// ========== ADMIN: GET ALL APPLICATIONS ==========
-app.get('/api/applications', (req, res) => {
-  const { adminPassword } = req.query;
-  if (adminPassword !== 'jacksmith007') {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  const APP_FILE = 'applications.json';
-  let applications = [];
-  if (fs.existsSync(APP_FILE)) {
+// ========== ADMIN: GET ALL APPLICATIONS (MONGODB) ==========
+app.get('/api/applications', async (req, res) => {
+    const { adminPassword } = req.query;
+    if (adminPassword !== 'jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
+
     try {
-      applications = JSON.parse(fs.readFileSync(APP_FILE, 'utf8'));
+        const applications = await Application.find().sort({ date: -1 });
+        const formatted = applications.map(app => ({
+            id: app._id, fullName: app.fullName, phone: app.phone, email: app.email,
+            age: app.age, country: app.country, tokenCount: app.tokenCount,
+            paymentChoice: app.paymentChoice, file1Url: app.file1Url, file1Name: app.file1Name,
+            file2Url: app.file2Url, file2Name: app.file2Name, date: app.date
+        }));
+        res.json({ applications: formatted });
     } catch (err) {
-      console.error('Error reading applications.json:', err);
+        console.error("Error fetching applications:", err);
+        res.status(500).json({ error: 'Failed to fetch applications' });
     }
-  }
-  res.json({ applications });
 });
 
-// ========== ADMIN: DELETE APPLICATION ==========
-app.delete('/api/applications/:id', (req, res) => {
+// ========== ADMIN: DELETE APPLICATION (MONGODB) ==========
+app.delete('/api/applications/:id', async (req, res) => {
     const { id } = req.params;
     const { adminPassword } = req.body;
+    if (adminPassword !== 'jacksmith007') return res.status(401).json({ error: 'Unauthorized' });
 
-    // Check password (make sure this matches the password you use)
-    if (adminPassword !== 'jacksmith007') {
-        return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        await Application.findByIdAndDelete(id);
+        res.json({ success: true, message: 'Application deleted successfully' });
+    } catch (err) {
+        console.error("Error deleting application:", err);
+        res.status(500).json({ error: 'Failed to delete application' });
     }
-
-    const APP_FILE = 'applications.json';
-    let applications = [];
-
-    if (fs.existsSync(APP_FILE)) {
-        try {
-            applications = JSON.parse(fs.readFileSync(APP_FILE, 'utf8'));
-        } catch (err) {
-            console.error('Error reading applications.json:', err);
-            return res.status(500).json({ error: 'Database error' });
-        }
-    }
-
-    // Filter out the application with the matching ID
-    const initialLength = applications.length;
-    applications = applications.filter(app => app.id !== id);
-
-    // If the length didn't change, the ID wasn't found
-    if (applications.length === initialLength) {
-        return res.status(404).json({ error: 'Application not found' });
-    }
-
-    // Save the updated list back to the file
-    fs.writeFileSync(APP_FILE, JSON.stringify(applications, null, 2));
-    
-    console.log(`🗑️ Application ${id} deleted.`);
-    res.json({ success: true, message: 'Application deleted successfully' });
 });
 
 // --- GLOBAL ERROR HANDLER ---
