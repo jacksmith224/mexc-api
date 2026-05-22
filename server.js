@@ -61,6 +61,8 @@ const Announcement = mongoose.model('Announcement', announcementSchema);
 
 const app = express();
 app.use(express.json());
+const cors = require('cors');
+app.use(cors()); // This tells the server to allow outside requests!
 
 
 // Enable CORS
@@ -379,6 +381,18 @@ app.delete('/api/application/:id', async (req, res) => {
         console.error("Error deleting application:", err);
         res.status(500).json({ error: 'Failed to delete application' });
     }
+});
+
+// ========== MEXC BALANCE API ==========
+app.get('/api/balance', async (req, res) => {
+    // This is where you would securely use your hidden EXCHANGE_API_KEY
+    // to ask MEXC for the real data. 
+    
+    // For now, sending dummy data so you can test the frontend:
+    res.json({ 
+        balance: "714.71", 
+        tokens: 7 
+    });
 });
 
 // --- GLOBAL ERROR HANDLER ---
