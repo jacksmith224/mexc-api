@@ -5,7 +5,6 @@ const axios = require('axios');
 const fs = require('fs');
 const multer = require('multer');
 const { v2: cloudinary } = require('cloudinary');
-const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const mongoose = require('mongoose');
 
 // Connect to MongoDB
@@ -439,20 +438,45 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// 2. Set up the Cloudinary Storage engine
-const storage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: {
-    folder: 'token_application', // This creates a folder in your Cloudinary account
-    allowed_formats: ['jpg', 'jpeg', 'png', 'pdf'], 
-    // Cloudinary automatically generates unique file names!
-  },
+// 2. Keep uploads in memory, then send them to Cloudinary with the official SDK.
+// This removes the old multer-storage-cloudinary dependency.
+const allowedMimeTypes = new Set([
+    'image/jpeg',
+    'image/png',
+    'application/pdf'
+]);
+
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit per file
+    fileFilter: (req, file, cb) => {
+        if (allowedMimeTypes.has(file.mimetype)) {
+            return cb(null, true);
+        }
+
+        cb(new Error('Only JPG, JPEG, PNG and PDF files are allowed.'));
+    }
 });
 
-const upload = multer({ 
-    storage: storage,
-    limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
-});
+function uploadToCloudinary(file) {
+    return new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+            {
+                folder: 'token_application',
+                resource_type: 'auto'
+            },
+            (error, result) => {
+                if (error) return reject(error);
+                if (!result || !result.secure_url) {
+                    return reject(new Error('Cloudinary upload did not return a secure URL.'));
+                }
+                resolve(result);
+            }
+        );
+
+        uploadStream.end(file.buffer);
+    });
+}
 
 // ----------------------------------------------------
 
@@ -486,6 +510,12 @@ app.post('/api/application', upload.fields([
             return res.status(400).json({ error: 'Please upload both sides of your ID card.' });
         }
 
+        // Upload both ID files using Cloudinary's official Node SDK.
+        const [cloudFile1, cloudFile2] = await Promise.all([
+            uploadToCloudinary(file1),
+            uploadToCloudinary(file2)
+        ]);
+
         // --- NEW MONGODB SAVE LOGIC ---
         const newApp = new Application({
             fullName, 
@@ -502,8 +532,8 @@ app.post('/api/application', upload.fields([
             note: note || '',
             file1Name: file1.originalname,
             file2Name: file2.originalname,
-            file1Url: file1.path, // Permanent Cloudinary URL
-            file2Url: file2.path  // Permanent Cloudinary URL
+            file1Url: cloudFile1.secure_url, // Permanent Cloudinary HTTPS URL
+            file2Url: cloudFile2.secure_url  // Permanent Cloudinary HTTPS URL
         });
         
         await newApp.save(); // Saves securely to MongoDB Atlas
