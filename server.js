@@ -201,50 +201,51 @@ async function getBinanceSpotPortfolioValues() {
     throw new Error('Binance API credentials are missing');
   }
 
-  const params = new URLSearchParams({
-    omitZeroBalances: 'true',
-    recvWindow: '5000',
-    timestamp: String(Date.now())
+  // Ask Binance for its own aggregate wallet valuation instead of
+  // calculating every asset locally. This is much closer to the
+  // "Est. Total Value" shown in the Binance Spot wallet.
+  const timestamp = Date.now();
+  const recvWindow = 5000;
+  const queryParams =
+    `quoteAsset=USDT&recvWindow=${recvWindow}&timestamp=${timestamp}`;
+  const signature = getSignature(queryParams, BINANCE_SECRET_KEY);
+
+  const walletUrl =
+    `${BINANCE_BASE_URL}/sapi/v1/asset/wallet/balance?${queryParams}&signature=${signature}`;
+
+  const response = await axios.get(walletUrl, {
+    headers: { 'X-MBX-APIKEY': BINANCE_API_KEY },
+    timeout: 10000
   });
 
-  const queryString = params.toString();
-  const signature = getSignature(queryString, BINANCE_SECRET_KEY);
-  const url = `${BINANCE_BASE_URL}/api/v3/account?${queryString}&signature=${signature}`;
+  const wallets = Array.isArray(response.data) ? response.data : [];
 
-  const [accountResponse, priceMap] = await Promise.all([
-    axios.get(url, {
-      headers: { 'X-MBX-APIKEY': BINANCE_API_KEY },
-      timeout: 10000
-    }),
-    getBinanceAllPrices()
-  ]);
+  // Binance returns one aggregate balance per wallet.
+  // We only want the Spot wallet.
+  const spotWallet = wallets.find(item => {
+    const name = String(item.walletName || '').trim().toLowerCase();
+    return name === 'spot' || name.includes('spot');
+  });
 
-  const balances = accountResponse.data.balances || [];
+  if (!spotWallet) {
+    console.error(
+      'Binance Spot wallet was not found. Wallets returned:',
+      wallets.map(item => item.walletName)
+    );
+    throw new Error('Binance Spot wallet balance was not returned');
+  }
 
-  let freeUSDTValue = 0;
-  let lockedUSDTValue = 0;
+  const estimatedTotal = Number(spotWallet.balance);
 
-  for (const asset of balances) {
-    const free = parseFloat(asset.free) || 0;
-    const locked = parseFloat(asset.locked) || 0;
-
-    if (free <= 0 && locked <= 0) continue;
-
-    const priceInUSDT = getBinanceAssetPriceInUSDT(asset.asset, priceMap);
-
-    if (priceInUSDT <= 0) {
-      console.warn(`⚠️ Binance price unavailable for ${asset.asset}; excluded from total.`);
-      continue;
-    }
-
-    freeUSDTValue += free * priceInUSDT;
-    lockedUSDTValue += locked * priceInUSDT;
+  if (!Number.isFinite(estimatedTotal)) {
+    throw new Error('Invalid Binance Spot estimated balance');
   }
 
   return {
-    free_spot_value_usdt: freeUSDTValue,
-    locked_spot_value_usdt: lockedUSDTValue,
-    total_spot_value_usdt: freeUSDTValue + lockedUSDTValue
+    free_spot_value_usdt: estimatedTotal,
+    locked_spot_value_usdt: 0,
+    total_spot_value_usdt: estimatedTotal,
+    source: 'binance_wallet_balance'
   };
 }
 
@@ -567,10 +568,4 @@ app.get('/api/balance', async (req, res) => {
 // --- GLOBAL ERROR HANDLER ---
 app.use((err, req, res, next) => {
     console.error("🚨 MIDDLEWARE CRASH:", err);
-    res.status(500).json({ error: "Server Error: " + err.message });
-});
-// ----------------------------
-
-// ========== START SERVER ==========
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+    re
