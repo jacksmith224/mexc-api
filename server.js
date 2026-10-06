@@ -74,54 +74,216 @@ app.use((req, res, next) => {
   next();
 });
 
-// ========== MEXC API CONFIGURATION ==========
-const API_KEY = process.env.MEXC_API_KEY;
-const SECRET_KEY = process.env.MEXC_SECRET_KEY;
-const BASE_URL = 'https://api.mexc.com';
+// ========== EXCHANGE API CONFIGURATION ==========
+// MEXC
+const MEXC_API_KEY = process.env.MEXC_API_KEY;
+const MEXC_SECRET_KEY = process.env.MEXC_SECRET_KEY;
+const MEXC_BASE_URL = 'https://api.mexc.com';
+
+// Binance
+const BINANCE_API_KEY = process.env.BINANCE_API_KEY;
+const BINANCE_SECRET_KEY = process.env.BINANCE_SECRET_KEY;
+const BINANCE_BASE_URL = 'https://api.binance.com';
 
 function getSignature(queryString, secret) {
   return crypto.createHmac('sha256', secret).update(queryString).digest('hex');
 }
 
-async function getPrice(symbol) {
+// ---------- MEXC helpers ----------
+async function getMexcPrice(symbol) {
   try {
-    const response = await axios.get(`${BASE_URL}/api/v3/ticker/price?symbol=${symbol}`);
+    const response = await axios.get(`${MEXC_BASE_URL}/api/v3/ticker/price?symbol=${symbol}`, {
+      timeout: 10000
+    });
     return parseFloat(response.data.price);
   } catch {
     return 0;
   }
 }
 
-// ========== SPOT PORTFOLIO ==========
+async function getMexcSpotPortfolioValue() {
+  if (!MEXC_API_KEY || !MEXC_SECRET_KEY) {
+    throw new Error('MEXC API credentials are missing');
+  }
+
+  const timestamp = Date.now();
+  const recvWindow = 5000;
+  const queryParams = `timestamp=${timestamp}&recvWindow=${recvWindow}`;
+  const signature = getSignature(queryParams, MEXC_SECRET_KEY);
+  const url = `${MEXC_BASE_URL}/api/v3/account?${queryParams}&signature=${signature}`;
+
+  const response = await axios.get(url, {
+    headers: { 'X-MEXC-APIKEY': MEXC_API_KEY },
+    timeout: 10000
+  });
+
+  const balances = response.data.balances || [];
+  let totalUSDTValue = 0;
+
+  for (const asset of balances) {
+    const free = parseFloat(asset.free) || 0;
+    const locked = parseFloat(asset.locked) || 0;
+    const totalHeld = free + locked;
+
+    if (totalHeld <= 0) continue;
+
+    if (asset.asset === 'USDT') {
+      totalUSDTValue += totalHeld;
+      continue;
+    }
+
+    let price = await getMexcPrice(`${asset.asset}USDT`);
+
+    // Preserve your existing fallbacks for assets without a direct USDT pair.
+    if (price === 0) price = await getMexcPrice(`${asset.asset}BUSD`);
+    if (price === 0) price = await getMexcPrice(`${asset.asset}USDC`);
+
+    totalUSDTValue += totalHeld * price;
+  }
+
+  return totalUSDTValue;
+}
+
+// ---------- Binance helpers ----------
+async function getBinanceAllPrices() {
+  const response = await axios.get(`${BINANCE_BASE_URL}/api/v3/ticker/price`, {
+    timeout: 10000
+  });
+
+  const priceMap = new Map();
+  for (const item of response.data || []) {
+    const price = parseFloat(item.price);
+    if (item.symbol && Number.isFinite(price) && price > 0) {
+      priceMap.set(item.symbol, price);
+    }
+  }
+
+  return priceMap;
+}
+
+function getBinanceAssetPriceInUSDT(asset, priceMap, visited = new Set()) {
+  if (asset === 'USDT') return 1;
+  if (visited.has(asset)) return 0;
+  visited.add(asset);
+
+  // Best case: the asset has a direct USDT market.
+  const direct = priceMap.get(`${asset}USDT`);
+  if (direct) return direct;
+
+  // Handle an inverse market if one exists.
+  const inverse = priceMap.get(`USDT${asset}`);
+  if (inverse) return 1 / inverse;
+
+  // Try common Binance quote assets as bridges to USDT.
+  const bridgeAssets = ['USDC', 'FDUSD', 'TUSD', 'BUSD', 'BTC', 'ETH', 'BNB'];
+
+  for (const bridge of bridgeAssets) {
+    if (bridge === asset) continue;
+
+    const assetToBridge = priceMap.get(`${asset}${bridge}`);
+    if (assetToBridge) {
+      const bridgeToUSDT = getBinanceAssetPriceInUSDT(bridge, priceMap, new Set(visited));
+      if (bridgeToUSDT > 0) return assetToBridge * bridgeToUSDT;
+    }
+
+    const bridgeToAsset = priceMap.get(`${bridge}${asset}`);
+    if (bridgeToAsset) {
+      const bridgeToUSDT = getBinanceAssetPriceInUSDT(bridge, priceMap, new Set(visited));
+      if (bridgeToUSDT > 0) return bridgeToUSDT / bridgeToAsset;
+    }
+  }
+
+  return 0;
+}
+
+async function getBinanceSpotPortfolioValue() {
+  if (!BINANCE_API_KEY || !BINANCE_SECRET_KEY) {
+    throw new Error('Binance API credentials are missing');
+  }
+
+  const params = new URLSearchParams({
+    omitZeroBalances: 'true',
+    recvWindow: '5000',
+    timestamp: String(Date.now())
+  });
+
+  const queryString = params.toString();
+  const signature = getSignature(queryString, BINANCE_SECRET_KEY);
+  const url = `${BINANCE_BASE_URL}/api/v3/account?${queryString}&signature=${signature}`;
+
+  const [accountResponse, priceMap] = await Promise.all([
+    axios.get(url, {
+      headers: { 'X-MBX-APIKEY': BINANCE_API_KEY },
+      timeout: 10000
+    }),
+    getBinanceAllPrices()
+  ]);
+
+  const balances = accountResponse.data.balances || [];
+  let totalUSDTValue = 0;
+
+  for (const asset of balances) {
+    const free = parseFloat(asset.free) || 0;
+    const locked = parseFloat(asset.locked) || 0;
+    const totalHeld = free + locked;
+
+    if (totalHeld <= 0) continue;
+
+    const priceInUSDT = getBinanceAssetPriceInUSDT(asset.asset, priceMap);
+
+    // Assets with no usable market price are ignored instead of breaking the page.
+    if (priceInUSDT <= 0) {
+      console.warn(`⚠️ Binance price unavailable for ${asset.asset}; excluded from total.`);
+      continue;
+    }
+
+    totalUSDTValue += totalHeld * priceInUSDT;
+  }
+
+  return totalUSDTValue;
+}
+
+// ========== EXISTING MEXC SPOT PORTFOLIO ==========
+// Kept on the same URL so your current website continues working unchanged.
 app.get('/api/spot-portfolio', async (req, res) => {
   try {
-    const timestamp = Date.now();
-    const recvWindow = 5000;
-    const queryParams = `timestamp=${timestamp}&recvWindow=${recvWindow}`;
-    const signature = getSignature(queryParams, SECRET_KEY);
-    const url = `${BASE_URL}/api/v3/account?${queryParams}&signature=${signature}`;
-    const response = await axios.get(url, { headers: { 'X-MEXC-APIKEY': API_KEY } });
-    
-    const balances = response.data.balances;
-    let totalUSDTValue = 0;
-    for (const asset of balances) {
-      const free = parseFloat(asset.free);
-      const locked = parseFloat(asset.locked);
-      const totalHeld = free + locked;
-      if (totalHeld <= 0) continue;
-      if (asset.asset === 'USDT') {
-        totalUSDTValue += totalHeld;
-      } else {
-        let price = await getPrice(`${asset.asset}USDT`);
-        if (price === 0) price = await getPrice(`${asset.asset}BUSD`);
-        if (price === 0) price = await getPrice(`${asset.asset}USDC`);
-        totalUSDTValue += totalHeld * price;
-      }
-    }
-    res.json({ total_spot_value_usdt: totalUSDTValue });
+    const mexcTotal = await getMexcSpotPortfolioValue();
+    res.json({ total_spot_value_usdt: mexcTotal });
   } catch (error) {
-    console.error('Spot portfolio error:', error.message);
-    res.status(500).json({ error: 'Spot portfolio error' });
+    console.error('MEXC spot portfolio error:', error.response?.data || error.message);
+    res.status(500).json({ error: 'MEXC spot portfolio error' });
+  }
+});
+
+// ========== BINANCE SPOT PORTFOLIO ==========
+app.get('/api/binance-spot-portfolio', async (req, res) => {
+  try {
+    const binanceTotal = await getBinanceSpotPortfolioValue();
+    res.json({ total_spot_value_usdt: binanceTotal });
+  } catch (error) {
+    console.error('Binance spot portfolio error:', error.response?.data || error.message);
+    res.status(500).json({ error: 'Binance spot portfolio error' });
+  }
+});
+
+// ========== COMBINED MEXC + BINANCE SPOT PORTFOLIO ==========
+app.get('/api/combined-spot-portfolio', async (req, res) => {
+  try {
+    const [mexcTotal, binanceTotal] = await Promise.all([
+      getMexcSpotPortfolioValue(),
+      getBinanceSpotPortfolioValue()
+    ]);
+
+    const combinedTotal = mexcTotal + binanceTotal;
+
+    res.json({
+      mexc_spot_value_usdt: mexcTotal,
+      binance_spot_value_usdt: binanceTotal,
+      total_spot_value_usdt: combinedTotal
+    });
+  } catch (error) {
+    console.error('Combined spot portfolio error:', error.response?.data || error.message);
+    res.status(500).json({ error: 'Combined spot portfolio error' });
   }
 });
 
