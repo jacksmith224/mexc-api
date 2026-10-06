@@ -568,4 +568,10 @@ app.get('/api/balance', async (req, res) => {
 // --- GLOBAL ERROR HANDLER ---
 app.use((err, req, res, next) => {
     console.error("🚨 MIDDLEWARE CRASH:", err);
-    re
+    res.status(500).json({ error: "Server Error: " + err.message });
+});
+// ----------------------------
+
+// ========== START SERVER ==========
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
