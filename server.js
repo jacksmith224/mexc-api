@@ -196,7 +196,7 @@ function getBinanceAssetPriceInUSDT(asset, priceMap, visited = new Set()) {
   return 0;
 }
 
-async function getBinanceSpotPortfolioValue() {
+async function getBinanceSpotPortfolioValues() {
   if (!BINANCE_API_KEY || !BINANCE_SECRET_KEY) {
     throw new Error('Binance API credentials are missing');
   }
@@ -220,27 +220,32 @@ async function getBinanceSpotPortfolioValue() {
   ]);
 
   const balances = accountResponse.data.balances || [];
-  let totalUSDTValue = 0;
+
+  let freeUSDTValue = 0;
+  let lockedUSDTValue = 0;
 
   for (const asset of balances) {
     const free = parseFloat(asset.free) || 0;
     const locked = parseFloat(asset.locked) || 0;
-    const totalHeld = free + locked;
 
-    if (totalHeld <= 0) continue;
+    if (free <= 0 && locked <= 0) continue;
 
     const priceInUSDT = getBinanceAssetPriceInUSDT(asset.asset, priceMap);
 
-    // Assets with no usable market price are ignored instead of breaking the page.
     if (priceInUSDT <= 0) {
       console.warn(`⚠️ Binance price unavailable for ${asset.asset}; excluded from total.`);
       continue;
     }
 
-    totalUSDTValue += totalHeld * priceInUSDT;
+    freeUSDTValue += free * priceInUSDT;
+    lockedUSDTValue += locked * priceInUSDT;
   }
 
-  return totalUSDTValue;
+  return {
+    free_spot_value_usdt: freeUSDTValue,
+    locked_spot_value_usdt: lockedUSDTValue,
+    total_spot_value_usdt: freeUSDTValue + lockedUSDTValue
+  };
 }
 
 // ========== EXISTING MEXC SPOT PORTFOLIO ==========
@@ -258,8 +263,8 @@ app.get('/api/spot-portfolio', async (req, res) => {
 // ========== BINANCE SPOT PORTFOLIO ==========
 app.get('/api/binance-spot-portfolio', async (req, res) => {
   try {
-    const binanceTotal = await getBinanceSpotPortfolioValue();
-    res.json({ total_spot_value_usdt: binanceTotal });
+    const values = await getBinanceSpotPortfolioValues();
+    res.json(values);
   } catch (error) {
     console.error('Binance spot portfolio error:', error.response?.data || error.message);
     res.status(500).json({ error: 'Binance spot portfolio error' });
@@ -269,16 +274,18 @@ app.get('/api/binance-spot-portfolio', async (req, res) => {
 // ========== COMBINED MEXC + BINANCE SPOT PORTFOLIO ==========
 app.get('/api/combined-spot-portfolio', async (req, res) => {
   try {
-    const [mexcTotal, binanceTotal] = await Promise.all([
+    const [mexcTotal, binanceValues] = await Promise.all([
       getMexcSpotPortfolioValue(),
-      getBinanceSpotPortfolioValue()
+      getBinanceSpotPortfolioValues()
     ]);
 
-    const combinedTotal = mexcTotal + binanceTotal;
+    const combinedTotal = mexcTotal + binanceValues.total_spot_value_usdt;
 
     res.json({
       mexc_spot_value_usdt: mexcTotal,
-      binance_spot_value_usdt: binanceTotal,
+      binance_spot_value_usdt: binanceValues.total_spot_value_usdt,
+      binance_free_spot_value_usdt: binanceValues.free_spot_value_usdt,
+      binance_locked_spot_value_usdt: binanceValues.locked_spot_value_usdt,
       total_spot_value_usdt: combinedTotal
     });
   } catch (error) {
