@@ -84,6 +84,12 @@ const BINANCE_API_KEY = process.env.BINANCE_API_KEY;
 const BINANCE_SECRET_KEY = process.env.BINANCE_SECRET_KEY;
 const BINANCE_BASE_URL = 'https://api.binance.com';
 
+// Binance Alpha is not included in the standard wallet-balance API.
+// Until Binance exposes a suitable personal Alpha balance endpoint,
+// keep the current Alpha account value here via Render Environment Variables.
+// Example: BINANCE_ALPHA_VALUE_USDT=78.98
+const BINANCE_ALPHA_VALUE_USDT = Number(process.env.BINANCE_ALPHA_VALUE_USDT || 0);
+
 function getSignature(queryString, secret) {
   return crypto.createHmac('sha256', secret).update(queryString).digest('hex');
 }
@@ -232,13 +238,27 @@ async function getBinanceSpotPortfolioValues() {
     throw new Error('Invalid Binance total account balance');
   }
 
+  // Add the manually supplied Binance Alpha account value.
+  // Invalid or negative values are treated as zero.
+  const alphaValue =
+    Number.isFinite(BINANCE_ALPHA_VALUE_USDT) && BINANCE_ALPHA_VALUE_USDT > 0
+      ? BINANCE_ALPHA_VALUE_USDT
+      : 0;
+
+  const fullBinanceAccountValue = totalAccountValue + alphaValue;
+
   return {
     // Keep the old field names so the current HTML continues working unchanged.
-    free_spot_value_usdt: totalAccountValue,
+    // These fields now represent the full Binance amount used by the webpage.
+    free_spot_value_usdt: fullBinanceAccountValue,
     locked_spot_value_usdt: 0,
-    total_spot_value_usdt: totalAccountValue,
-    total_account_value_usdt: totalAccountValue,
-    source: 'binance_all_wallets'
+    total_spot_value_usdt: fullBinanceAccountValue,
+
+    // Extra diagnostic fields so you can verify each part in the browser.
+    standard_wallets_value_usdt: totalAccountValue,
+    alpha_value_usdt: alphaValue,
+    total_account_value_usdt: fullBinanceAccountValue,
+    source: 'binance_all_wallets_plus_manual_alpha'
   };
 }
 
@@ -280,6 +300,8 @@ app.get('/api/combined-spot-portfolio', async (req, res) => {
       binance_spot_value_usdt: binanceValues.total_spot_value_usdt,
       binance_free_spot_value_usdt: binanceValues.free_spot_value_usdt,
       binance_locked_spot_value_usdt: binanceValues.locked_spot_value_usdt,
+      binance_standard_wallets_value_usdt: binanceValues.standard_wallets_value_usdt,
+      binance_alpha_value_usdt: binanceValues.alpha_value_usdt,
       total_spot_value_usdt: combinedTotal
     });
   } catch (error) {
