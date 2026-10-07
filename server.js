@@ -200,9 +200,9 @@ async function getBinanceSpotPortfolioValues() {
     throw new Error('Binance API credentials are missing');
   }
 
-  // Ask Binance for its own aggregate wallet valuation instead of
-  // calculating every asset locally. This is much closer to the
-  // "Est. Total Value" shown in the Binance Spot wallet.
+  // Get Binance's wallet-level balances in USDT and add ALL wallets together.
+  // This restores the earlier "whole Binance account" behavior instead of
+  // showing only the Spot wallet.
   const timestamp = Date.now();
   const recvWindow = 5000;
   const queryParams =
@@ -219,32 +219,26 @@ async function getBinanceSpotPortfolioValues() {
 
   const wallets = Array.isArray(response.data) ? response.data : [];
 
-  // Binance returns one aggregate balance per wallet.
-  // We only want the Spot wallet.
-  const spotWallet = wallets.find(item => {
-    const name = String(item.walletName || '').trim().toLowerCase();
-    return name === 'spot' || name.includes('spot');
-  });
+  let totalAccountValue = 0;
 
-  if (!spotWallet) {
-    console.error(
-      'Binance Spot wallet was not found. Wallets returned:',
-      wallets.map(item => item.walletName)
-    );
-    throw new Error('Binance Spot wallet balance was not returned');
+  for (const wallet of wallets) {
+    const value = Number(wallet.balance);
+    if (Number.isFinite(value) && value > 0) {
+      totalAccountValue += value;
+    }
   }
 
-  const estimatedTotal = Number(spotWallet.balance);
-
-  if (!Number.isFinite(estimatedTotal)) {
-    throw new Error('Invalid Binance Spot estimated balance');
+  if (!Number.isFinite(totalAccountValue)) {
+    throw new Error('Invalid Binance total account balance');
   }
 
   return {
-    free_spot_value_usdt: estimatedTotal,
+    // Keep the old field names so the current HTML continues working unchanged.
+    free_spot_value_usdt: totalAccountValue,
     locked_spot_value_usdt: 0,
-    total_spot_value_usdt: estimatedTotal,
-    source: 'binance_wallet_balance'
+    total_spot_value_usdt: totalAccountValue,
+    total_account_value_usdt: totalAccountValue,
+    source: 'binance_all_wallets'
   };
 }
 
