@@ -14,8 +14,10 @@ mongoose.connect(process.env.MONGODB_URI)
 
 // Define the Announcement Schema (What an announcement looks like)
 const announcementSchema = new mongoose.Schema({
-  title: String,
-  content: String,
+  title: String,       // Bengali title (existing field)
+  content: String,     // Bengali content (existing field)
+  titleEn: { type: String, default: '' },
+  contentEn: { type: String, default: '' },
   date: { type: Date, default: Date.now }
 });
 
@@ -310,76 +312,97 @@ app.get('/api/combined-spot-portfolio', async (req, res) => {
   }
 });
 
-// ========== ANNOUNCEMENTS SYSTEM (MONGODB) ==========
+// ========== BILINGUAL ANNOUNCEMENTS (MONGODB) ==========
+// Existing Bengali fields stay unchanged. English fields are optional at
+// API level so older clients and previously saved posts keep working.
+function validateAnnouncementTranslations(body, creating = false) {
+    const title = typeof body.title === 'string' ? body.title.trim() : '';
+    const content = typeof body.content === 'string' ? body.content.trim() : '';
+    if (!title || !content) return { error: 'Bengali title and content are required.' };
 
-// Get all announcements
+    // When old clients do not send English fields on update, preserve any
+    // previously stored translations instead of erasing them.
+    const englishSupplied = Object.prototype.hasOwnProperty.call(body, 'titleEn') ||
+        Object.prototype.hasOwnProperty.call(body, 'contentEn');
+    const titleEn = typeof body.titleEn === 'string' ? body.titleEn.trim() : '';
+    const contentEn = typeof body.contentEn === 'string' ? body.contentEn.trim() : '';
+    if (englishSupplied && Boolean(titleEn) !== Boolean(contentEn)) {
+        return { error: 'English title and content must both be filled in, or both left blank.' };
+    }
+
+    const result = { title, content };
+    if (englishSupplied || creating) {
+        result.titleEn = titleEn;
+        result.contentEn = contentEn;
+    }
+    return { values: result };
+}
+
+// Get all announcements in both languages, newest first.
 app.get('/api/announcements', async (req, res) => {
     try {
-        // Fetch all from database, sorted newest first
         const announcements = await Announcement.find().sort({ date: -1 });
-        
-        // Map them to match your frontend's expected format (using _id as id)
-        const formattedAnnouncements = announcements.map(ann => ({
+        res.set('Cache-Control', 'no-store');
+        res.json({ announcements: announcements.map(ann => ({
             id: ann._id,
             title: ann.title,
             content: ann.content,
+            titleEn: ann.titleEn || '',
+            contentEn: ann.contentEn || '',
             date: ann.date
-        }));
-        
-        res.json({ announcements: formattedAnnouncements });
+        })) });
     } catch (err) {
-        console.error("Error fetching announcements:", err);
+        console.error('Error fetching announcements:', err);
         res.status(500).json({ error: 'Failed to fetch announcements' });
     }
 });
 
-// Add new announcement
 app.post('/api/announcements', async (req, res) => {
-    const { title, content, adminPassword } = req.body;
+    const { adminPassword } = req.body || {};
     if (adminPassword !== 'jacksmith007') {
         return res.status(401).json({ error: 'Unauthorized' });
     }
-
+    const parsed = validateAnnouncementTranslations(req.body, true);
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
     try {
-        const newAnnouncement = new Announcement({ title, content });
-        await newAnnouncement.save(); // Save to database
-        res.json({ success: true, message: 'Announcement added successfully!' });
+        const announcement = await Announcement.create(parsed.values);
+        res.json({ success: true, message: 'Announcement published.', id: announcement._id });
     } catch (err) {
-        console.error("Error saving announcement:", err);
+        console.error('Error saving announcement:', err);
         res.status(500).json({ error: 'Failed to save announcement' });
     }
 });
 
-// Update announcement
 app.put('/api/announcements/:id', async (req, res) => {
-    const { id } = req.params;
-    const { title, content, adminPassword } = req.body;
+    const { adminPassword } = req.body || {};
     if (adminPassword !== 'jacksmith007') {
         return res.status(401).json({ error: 'Unauthorized' });
     }
-
+    const parsed = validateAnnouncementTranslations(req.body);
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
     try {
-        await Announcement.findByIdAndUpdate(id, { title, content });
-        res.json({ success: true, message: 'Announcement updated!' });
+        const announcement = await Announcement.findByIdAndUpdate(
+            req.params.id, { $set: parsed.values }, { new: true, runValidators: true }
+        );
+        if (!announcement) return res.status(404).json({ error: 'Announcement not found' });
+        res.json({ success: true, message: 'Both language versions saved.' });
     } catch (err) {
-        console.error("Error updating announcement:", err);
+        console.error('Error updating announcement:', err);
         res.status(500).json({ error: 'Failed to update announcement' });
     }
 });
 
-// Delete announcement
 app.delete('/api/announcements/:id', async (req, res) => {
-    const { id } = req.params;
-    const { adminPassword } = req.body;
+    const { adminPassword } = req.body || {};
     if (adminPassword !== 'jacksmith007') {
         return res.status(401).json({ error: 'Unauthorized' });
     }
-
     try {
-        await Announcement.findByIdAndDelete(id);
-        res.json({ success: true, message: 'Announcement deleted!' });
+        const announcement = await Announcement.findByIdAndDelete(req.params.id);
+        if (!announcement) return res.status(404).json({ error: 'Announcement not found' });
+        res.json({ success: true, message: 'Announcement deleted' });
     } catch (err) {
-        console.error("Error deleting announcement:", err);
+        console.error('Error deleting announcement:', err);
         res.status(500).json({ error: 'Failed to delete announcement' });
     }
 });
